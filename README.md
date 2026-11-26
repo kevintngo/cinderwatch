@@ -83,6 +83,10 @@ Touch was tested with Chrome's phone emulation, not on real phones. Gamepad inpu
 
 Open `index.html`. It works from `file://` with no server, no build step and no network.
 
+### As an Android app
+
+`android/` holds a small app that plays the same `index.html` full screen and offline, installed from an APK without Google Play. See [android/README.md](android/README.md) to build and install it.
+
 ## Build it
 
 ```bash
@@ -108,6 +112,7 @@ This joins `src/*.js` into `index.html` and inlines three.js from `vendor/`.
 | `src/80-audio.js` | Synthesized sound |
 | `src/90-main.js` | Camera and main loop |
 | `tools/` | Build script and test tools |
+| `android/` | The Android app |
 
 ## Development tools
 
