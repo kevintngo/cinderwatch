@@ -10,7 +10,11 @@ A handful of firelit towers hold the great beacon of a ruined keep against endle
 
 ## What is in it
 
-- **Four towers, three levels each**, raised piece by piece inside scaffolding: archer tower, bombard, storm spire and guard post.
+- **Four towers, four levels each**, raised piece by piece inside scaffolding: archer tower, bombard, storm spire and guard post. At the fourth level each tower takes one of two paths:
+  - archer tower: a **crossbow tower** whose bolts fly far, hit hard and punch through armor, or **venom archers** whose poison keeps hurting for three seconds
+  - bombard: a **rocket battery** that fires salvos at very long range, or a **great cannon** whose wide blast staggers everything it hits
+  - storm spire: a **thunder spire** whose longer chains leave live roots in the ground, or a **plasma spire** whose single beam burns hotter the longer it holds
+  - guard post: a **knight hall** of armored knights who hold more enemies at once, or an **assassin den** of quick blades that dodge, catch spiders and cut wraiths
 - **Twenty kinds of monster**, each with its own model and trick. Skeletons, giant rats, slimes that split, shield-bearing knights and bats are joined by:
   - ghouls that run faster as they are hurt, dire wolves, and cave spiders and scarabs that slip past the guards
   - sappers whose powder keg blows up friend and foe, and wraiths that arrows and swords pass through while they fade
@@ -38,8 +42,8 @@ The game needs no input. Your first command puts you in charge, and the AI comma
 | Hover a pad or tower | Highlight it and show its range |
 | Click or tap an empty pad | Open the build menu |
 | Click or tap a tower | Upgrade or sell |
-| `1` to `4` | Pick a tower kind |
-| `U` | Upgrade the hovered or selected tower |
+| `1` to `4` | Pick a tower kind; in a level 3 tower's menu, `1` or `2` picks its path |
+| `U` | Upgrade the hovered or selected tower (at level 3 it opens the path choice) |
 | `X` | Sell the selected tower (press twice, or click Sell twice, to confirm) |
 | `Space` | Call the next wave early |
 | `C`, or click the commander plate | Hand command back to the AI, or take it |
@@ -64,7 +68,7 @@ The game plays in portrait and in landscape, and follows the screen when it turn
 | --- | --- |
 | Tap an empty pad | Open the build menu |
 | Tap a tower in the menu | Show what it does and its range; tap it again to build |
-| Tap a built tower | Upgrade, or sell (sell asks for a second tap) |
+| Tap a built tower | Upgrade, or sell (sell asks for a second tap); at level 3, tap a path to see it and tap it again to take it |
 | Tap the wave plate | Call the next wave early |
 | Tap the commander plate | Hand command back to the AI, or take it |
 | Drag | Move the view |
@@ -82,6 +86,14 @@ Touch was tested with Chrome's phone emulation, not on real phones. Gamepad inpu
 ## Run it
 
 Open `index.html`. It works from `file://` with no server, no build step and no network.
+
+### As an Android app
+
+`android/` holds a small app that plays the same `index.html` full screen and offline, installed from an APK without Google Play. See [android/README.md](android/README.md) to build and install it.
+
+### As an iOS app
+
+`ios/` holds the same kind of app for iPhone and iPad, an Xcode project around the same `index.html`. See [ios/README.md](ios/README.md) to build it and get it onto a device.
 
 ## Build it
 
@@ -108,6 +120,8 @@ This joins `src/*.js` into `index.html` and inlines three.js from `vendor/`.
 | `src/80-audio.js` | Synthesized sound |
 | `src/90-main.js` | Camera and main loop |
 | `tools/` | Build script and test tools |
+| `android/` | The Android app |
+| `ios/` | The iOS app |
 
 ## Development tools
 
@@ -129,6 +143,13 @@ node tools/record.js capture 4 5130-5490,9870-10230 out.mp4
 ```
 
 `record.js` steps the game at a fixed 1/60 s, so a seed always replays the same way. `scan` logs what happens when, `stills` saves frames, and `capture` writes a video of the given frame ranges with the game's own audio.
+
+```bash
+node tools/balance.js 1-8 90
+node tools/balance.js 1-8 60 level=5
+```
+
+`balance.js` lets the AI commander play each seed headless, without drawing, until its first defeat or the time limit in game minutes (90 minutes takes well under a minute per seed). It reports the wave each seed reached, how much damage each tower deals at level 3 and on each level 4 path, and for every battlefield the lives lost to regular waves and to the boss, how often the boss got through, and the unspent gold at the start of waves 2 to 4 and before the boss. `B=1` adds a line per battlefield, `V=1` a line per wave, `FILE=other.html` tests another build, and `LCAP=14` splits the later battlefields further. On Linux it uses software WebGL, so Chrome for Testing's `chrome-headless-shell` works as `CHROME`. With a fixed seed the game starts in Ashen Pass, so `level=5` and `level=10` keep each battlefield in its usual land and boss; other values pair them differently from a real run.
 
 URL flags, for example `index.html#seed=4&fps=1`:
 

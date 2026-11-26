@@ -187,7 +187,8 @@ function resizeRenderer() {
   R.dw = dw; R.dh = dh; R.dpr = dpr; R.cssW = dw / dpr; R.cssH = dh / dpr;
   { const el = document.getElementById('safe'), cs = el ? getComputedStyle(el) : null, v = k => cs ? Math.round((parseFloat(cs[k]) || 0) * dpr) : 0; R.safe = [v('paddingLeft'), v('paddingTop'), v('paddingRight'), v('paddingBottom')]; }
   R.renderer.setSize(dw, dh, false);
-  const texel = Math.max(2, Math.sqrt(dw * dh / R.maxPix), Math.min(dw, dh) / R.maxIH);
+  // A scene pixel is never smaller than a CSS pixel: on a high-density phone, finer pixels cost a lot and cannot be seen.
+  const texel = Math.max(2, dpr, Math.sqrt(dw * dh / R.maxPix), Math.min(dw, dh) / R.maxIH);
   let ih = Math.round(dh / texel * R.quality);
   ih = Math.max(ih, Math.min(dh, 240));
   let iw = Math.max(8, Math.round(dw * ih / dh));

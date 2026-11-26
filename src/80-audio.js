@@ -393,7 +393,30 @@ const AU = (function () {
     grains(d, t + 0.08, 5, 0.32, 0.12, 0.006, 0.02, 2000, 4200, 6, 1);
   };
 
+  S.crossbow = (d, t) => {
+    const k = rr(0.92, 1.08);
+    const g = gn(d), bp = flt(g, 'bandpass', 520 * k, 1.2), o = osc('triangle', 120 * k, t, 0.3, bp); sw(o.frequency, t, 140 * k, 60 * k, 0.18); ad(g.gain, t, 1.0, 0.002, 0.22);
+    const c = gn(d), cf = flt(c, 'highpass', 1400); noi(t, 0.06, cf); ad(c.gain, t, 0.45, 0.0005, 0.03);
+    const w = gn(d), wf = flt(w, 'bandpass', 1500, 1.6); noi(t + 0.01, 0.3, wf); sw(wf.frequency, t, 2600, 500, 0.25); ad(w.gain, t + 0.01, 0.3, 0.02, 0.22);
+    const th = gn(d), to = osc('sine', 75, t, 0.25, th); sw(to.frequency, t, 90, 45, 0.15); ad(th.gain, t, 0.5, 0.002, 0.18);
+  };
+  S.rocket = (d, t) => {
+    const k = rr(0.9, 1.1);
+    const b = gn(d), bf = flt(b, 'lowpass', 900); noi(t, 0.25, bf, bufBrown); ad(b.gain, t, 0.7, 0.004, 0.18);
+    const w = gn(d), wf = flt(w, 'bandpass', 900 * k, 1.1); noi(t, 0.9, wf); sw(wf.frequency, t, 700 * k, 2600 * k, 0.8); w.gain.setValueAtTime(0.0001, t); w.gain.exponentialRampToValueAtTime(0.4, t + 0.08); w.gain.exponentialRampToValueAtTime(0.0001, t + 0.9);
+    grains(d, t + 0.05, 10, 0.6, 0.12, 0.004, 0.015, 1500, 4500, 3, 1);
+  };
+  S.plasma = (d, t, p) => {
+    const k = 1 + 0.25 * p, lp = flt(d, 'lowpass', 4200), g = gn(lp, 0);
+    const o = osc('sawtooth', 110 * k, t, 0.46, g), o2 = osc('square', 221 * k, t, 0.46, gn(g, 0.25)); sw(o.frequency, t, 108 * k, 116 * k, 0.45);
+    g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.13, t + 0.04); g.gain.linearRampToValueAtTime(0.1, t + 0.36); g.gain.linearRampToValueAtTime(0.0001, t + 0.46);
+    const n = gn(lp), nf = flt(n, 'bandpass', 3000, 2); noi(t, 0.46, nf); ad(n.gain, t, 0.05, 0.05, 0.38);
+  };
+
   const DEF = {
+    crossbow: [S.crossbow, 0.08, 0.25, 1, 0.4, 0.6],
+    rocket: [S.rocket, 0.08, 0.35, 1, 0.9, 0.7],
+    plasma: [S.plasma, 0.3, 0.2, 0, 0.5, 0.6],
     bow: [S.bow, 0.05, 0.18, 1, 0.3, 0.55],
     arrowHit: [S.arrowHit, 0.045, 0.12, 0, 0.15, 0.5],
     cannon: [S.cannon, 0.09, 0.45, 2, 1.6, 0.9],

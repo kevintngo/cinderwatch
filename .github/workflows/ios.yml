@@ -1,0 +1,51 @@
+name: iOS
+
+on:
+  push:
+    paths: ['index.html', 'ios/**', '.github/workflows/ios.yml']
+  pull_request:
+    paths: ['index.html', 'ios/**', '.github/workflows/ios.yml']
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  app:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build for the simulator
+        run: >
+          xcodebuild -project ios/Cinderwatch.xcodeproj -scheme Cinderwatch -configuration Debug
+          -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath build/sim
+          CODE_SIGNING_ALLOWED=NO build
+
+      - name: Build for devices, unsigned
+        run: >
+          xcodebuild -project ios/Cinderwatch.xcodeproj -scheme Cinderwatch -configuration Release
+          -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build/device
+          CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build
+
+      - name: Package
+        run: |
+          mkdir -p out/Payload
+          cp -R build/device/Build/Products/Release-iphoneos/Cinderwatch.app out/Payload/
+          (cd out && zip -qr cinderwatch-unsigned.ipa Payload)
+          (cd build/sim/Build/Products/Debug-iphonesimulator && zip -qr "$GITHUB_WORKSPACE/out/cinderwatch-simulator.zip" Cinderwatch.app)
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cinderwatch-ios
+          path: |
+            out/cinderwatch-unsigned.ipa
+            out/cinderwatch-simulator.zip
+
+      - name: Attach to the release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ github.event.release.tag_name }}" out/cinderwatch-unsigned.ipa --clobber

@@ -88,7 +88,9 @@ const UI = (() => {
       if (PAN[e.code] && !e.ctrlKey && !e.metaKey && !e.altKey) { U.keys.add(e.code); e.preventDefault(); }
       if (e.repeat) return; audioGesture(); U.keepAwake(); U.touch = false;
       const k = e.key;
-      if (k >= '1' && k <= '4') { pickKind(TOWER_KINDS[+k - 1]); e.preventDefault(); }
+      const fk = U.menu && U.menu.tower && U.menu.tower.lvl === 2 ? U.menu.tower : null;
+      if (fk && (k === '1' || k === '2')) { touchInput(); doUpgrade(fk, +k - 1); e.preventDefault(); }
+      else if (k >= '1' && k <= '4') { pickKind(TOWER_KINDS[+k - 1]); e.preventDefault(); }
       else if (k === ' ' || k === 'Enter') { callWave(); e.preventDefault(); }
       else if (k === 'Escape') { U.closeMenu(); }
       else if (k === 'u' || k === 'U') { const t = (U.menu && U.menu.tower) || (U.hover && U.hover.tower); if (t) { touchInput(); doUpgrade(t); } }
@@ -136,7 +138,18 @@ const UI = (() => {
   function toggleCommand() { U.setManual(!U.manual); U.idle = 0; sfx('uiClick', CAM.x, CAM.z, .8); }
   function deny() { U.deny = 1; sfx('uiDeny', CAM.x, CAM.z, .6); buzz([18, 40, 18]); }
   function doBuild(pad, kind) { touchInput(); if (buildTower(pad, kind, true)) { sfx('uiClick', pad.x, pad.z, .8); buzz(12); U.menu = null; U.armed = null; return true; } deny(); return false; }
-  function doUpgrade(t) { if (upgradeTower(t, true)) { sfx('uiClick', t.x, t.z, .8); buzz(12); U.menu = null; return true; } deny(); return false; }
+  function doUpgrade(t, pi) {
+    if (t.lvl === 2 && pi === undefined) { if (!U.menu || U.menu.tower !== t) { U.menu = { pad: t.pad, tower: t, t: 0, focus: 0, sel: null, psel: null, sellArm: false }; sfx('uiHover', t.x, t.z, .9); } else if (U.menu.psel !== null) return doUpgrade(t, U.menu.psel); return false; }
+    if (upgradeTower(t, true, pi)) { sfx('uiClick', t.x, t.z, .8); buzz(12); U.menu = null; return true; } deny(); return false;
+  }
+  function statLine(d, lvl, kind) {
+    if (kind === 'guard') return d.n[lvl] + ' ' + (d.path === 'knights' ? 'knights' : d.path === 'assassins' ? 'assassins' : 'footmen') + ' · ' + d.hp[lvl] + ' health';
+    const r = 'Range ' + d.range[lvl].toFixed(1) + ' · ';
+    if (d.beam) return r + 'Burn ' + d.beam[0] + '-' + d.beam[1] + '/s';
+    if (d.poison) return r + 'Damage ' + d.dmg[lvl] + ' + poison';
+    if (d.salvo) return r + 'Damage ' + d.salvo + 'x' + d.dmg[lvl];
+    return r + 'Damage ' + d.dmg[lvl];
+  }
   function doSell(t) { if (sellTower(t)) { U.menu = null; return true; } return false; }
   function pickKind(kind) {
     touchInput();
@@ -167,7 +180,7 @@ const UI = (() => {
       touchInput(); U.lastTap.t = -9;
       if (!h.tower && U.armed) { doBuild(h.pad, U.armed); return; }
       if (U.menu && U.menu.pad === h.pad) { U.menu = null; return; }
-      U.menu = { pad: h.pad, tower: h.tower, t: 0, focus: 0, sel: null, sellArm: false }; U.armed = null; sfx('uiHover', h.pad.x, h.pad.z, .9); buzz(6); return;
+      U.menu = { pad: h.pad, tower: h.tower, t: 0, focus: 0, sel: null, psel: null, sellArm: false }; U.armed = null; sfx('uiHover', h.pad.x, h.pad.z, .9); buzz(6); return;
     }
     if (U.menu || U.armed) { U.menu = null; U.armed = null; U.lastTap.t = -9; return; }
     if (now - U.lastTap.t < 330 && Math.hypot(x - U.lastTap.x, y - U.lastTap.y) < 40 * (R.dpr || 1)) { U.lastTap.t = -9; if (CAM.man && CAM.mzoom > 1.3) camReset(); else camZoomTo(Math.max(1.9, (CAM.man ? CAM.mzoom : CAM.zoom) * 1.6), x, y); }
@@ -194,7 +207,7 @@ const UI = (() => {
       }
     }
     if (!ax && !ay) st.t = 0;
-    if (hit(0)) { touchInput(); audioGesture(); st.active = true; if (st.sel < 0) st.sel = 0; if (U.menu) { const bt = U.btns[U.menu.focus]; if (bt) bt.fn(); } else { const pad = G.B.pads[st.sel]; U.menu = { pad, tower: pad.tower, t: 0, focus: 0, sel: null, sellArm: false }; sfx('uiHover', pad.x, pad.z, .9); } }
+    if (hit(0)) { touchInput(); audioGesture(); st.active = true; if (st.sel < 0) st.sel = 0; if (U.menu) { const bt = U.btns[U.menu.focus]; if (bt) bt.fn(); } else { const pad = G.B.pads[st.sel]; U.menu = { pad, tower: pad.tower, t: 0, focus: 0, sel: null, psel: null, sellArm: false }; sfx('uiHover', pad.x, pad.z, .9); } }
     if (hit(1)) { U.closeMenu(); touchInput(); }
     if (hit(2)) { const pad = st.sel >= 0 ? G.B.pads[st.sel] : null; if (pad && pad.tower) { touchInput(); doUpgrade(pad.tower); } }
     if (hit(3) || hit(9)) callWave();
@@ -224,7 +237,7 @@ const UI = (() => {
     if (tgt && G.B && G.phase === 'play') {
       const pad = tgt.pad, pulse = .5 + .5 * Math.sin(G.t * 5);
       setRing(U.padMesh, pad.x, pad.z, 1.5, .1); U.padMesh.material.opacity = .45 + .25 * pulse;
-      let range = 0; if (tgt.tower) range = tgt.tower.range; else { const kind = (U.menu && (U.menu.sel || (U.hotBtn && U.hotBtn.kind))) || U.armed || (U.menu && U.btns[U.menu.focus] && U.gp.active && U.btns[U.menu.focus].kind) || 'archer'; range = TOWER[kind].range[0]; }
+      let range = 0; if (tgt.tower) range = U.menu && U.menu.tower === tgt.tower && U.menu.pview !== undefined && U.menu.pview !== null ? PATH_DEF[TOWER_PATHS[tgt.tower.kind][U.menu.pview].key].range[3] : tgt.tower.range; else { const kind = (U.menu && (U.menu.sel || (U.hotBtn && U.hotBtn.kind))) || U.armed || (U.menu && U.btns[U.menu.focus] && U.gp.active && U.btns[U.menu.focus].kind) || 'archer'; range = TOWER[kind].range[0]; }
       setRing(U.rangeMesh, pad.x, pad.z, range, .07); U.rangeMesh.material.opacity = .34;
     } else { U.padMesh.visible = false; U.rangeMesh.visible = false; }
     R.canvas.style.cursor = U.panning ? 'grabbing' : (U.hotBtn || U.hover || U.hudHot) ? 'pointer' : 'default';
@@ -363,15 +376,42 @@ const UI = (() => {
         const ls = lines(lit || fk), ty = by + bh + 4 * s;
         text(ls[0], px + mp, ty, lit || fk ? COLR.tx : COLR.dim); text(ls[1], px + mp, ty + LH + s, COLR.dim); if (ls[2]) text(ls[2], px + mp, ty + LH * 2 + s, COLR.dim);
         if (tch && m.sel) { const can = G.gold >= TOWER[m.sel].cost[0]; text(can ? 'Tap again to build' : 'Not enough gold yet', px + mp, ty + LH * 3 + 2 * s, can ? COLR.amber : COLR.red); }
-      } else {
-        const t = m.tower, d = t.def, maxed = t.lvl >= 2, upc = maxed ? 0 : d.cost[t.lvl + 1], can = !maxed && G.gold >= upc && t.state === 'active', refund = Math.round(t.spent * .6), L1 = t.lvl + 1;
-        const ul = maxed ? 'Max level' : 'Upgrade ' + upc, sl = m.sellArm ? 'Confirm +' + refund : 'Sell +' + refund, iw9 = 9 * s, bw3 = Math.max(tw(ul), tw(sl), tw('Confirm +' + refund)) + iw9 + 11 * s, bh = (tch ? 24 : 15) * s, by0 = Math.round((bh - LH) / 2);
-        const st = t.kind === 'guard' ? d.n[t.lvl] + ' footmen · ' + d.hp[t.lvl] + ' health' : 'Range ' + d.range[t.lvl].toFixed(1) + ' · Damage ' + d.dmg[t.lvl];
-        const nx = maxed ? t.kills + ' kills' : (t.kind === 'guard' ? 'Next: ' + d.n[L1] + ' footmen · ' + d.hp[L1] + ' health' : 'Next: range ' + d.range[L1].toFixed(1) + ' · damage ' + d.dmg[L1]);
-        const wP = Math.max(bw3 * 2 + 3 * s, tw(d.name) + 26 * s, tw(st), tw(nx)) + mp * 2, hP = mp * 2 + LH * 3 + 6 * s + bh, [px, py] = place(wP, hP);
+      } else if (m.tower.lvl === 2) {
+        const t = m.tower, d = t.def, P = TOWER_PATHS[t.kind], refund = Math.round(t.spent * .6), ready = t.state === 'active', iw9 = 9 * s, bh = (tch ? 24 : 15) * s, by0 = Math.round((bh - LH) / 2);
+        const st = statLine(d, t.lvl, t.kind), sl = m.sellArm ? 'Confirm +' + refund : 'Sell +' + refund;
+        let lit = null; const fkey = U.gp.active && m.focus < 2 ? m.focus : null;
+        const label = p => (tch ? '' : (P.indexOf(p) + 1) + ' ') + p.short, bwp = Math.max(...P.map(p => tw(label(p)) + 8 * s + tw('' + p.cost))) + 12 * s;
+        const info = i => { if (i === null) return tch ? ['Level 4: pick a path.', 'Tap one to see it,', 'then tap it again to buy.'] : ['Level 4: pick a path.', 'Hover one to see it,', 'or press 1 or 2.']; const p = P[i]; return [p.desc[0], p.desc[1], statLine(PATH_DEF[p.key], 3, t.kind)]; };
+        let textW = Math.max(tw(d.name) + 30 * s, tw(st)); for (const i of [null, 0, 1]) for (const l of info(i)) textW = Math.max(textW, tw(l));
+        const wP = Math.max(bwp * 2 + 3 * s, textW) + mp * 2, hP = mp * 2 + LH * 5 + 8 * s + bh * 2 + 3 * s, [px, py] = place(wP, hP);
         U.menuRect = { x: px, y: py, w: wP, h: hP };
         plate(px, py, wP, hP); text(d.name, px + mp, py + mp - s, COLR.amber);
-        for (let i = 0; i < 3; i++) PX.icon(c, i <= t.lvl ? 'star' : 'starEmpty', px + wP - mp - (3 - i) * 6 * s, py + mp, s);
+        for (let i = 0; i < 4; i++) PX.icon(c, i <= t.lvl ? 'star' : 'starEmpty', px + wP - mp - (4 - i) * 6 * s, py + mp, s);
+        text(st, px + mp, py + mp + LH + s, COLR.tx);
+        const by = py + mp + LH * 5 + 8 * s, bwf = Math.floor((wP - mp * 2 - 3 * s) / 2);
+        P.forEach((p, i) => {
+          const can = ready && G.gold >= p.cost, bx = px + mp + i * (bwf + 3 * s);
+          const r = button(bx, by, bwf, bh, 'path' + i, can, () => { if (U.touch && m.psel !== i) { m.psel = i; sfx('uiHover', t.x, t.z, .8); } else doUpgrade(t, i); }, null, m.psel === i);
+          if (r.lit && (!tch || m.psel === i)) lit = i;
+          const lw = tw(label(p)) + 3 * s + 8 * s + tw('' + p.cost), lx = bx + Math.round((bwf - lw) / 2);
+          text(label(p), lx, by + by0 + r.dy, can ? COLR.tx : COLR.dim); const cx0 = lx + tw(label(p)) + 3 * s;
+          PX.icon(c, 'coin', cx0, by + by0 + r.dy, s, can ? 1 : .5); text('' + p.cost, cx0 + 10 * s, by + by0 + r.dy, can ? COLR.amber : COLR.red);
+        });
+        const vi = lit !== null ? lit : m.psel !== null ? m.psel : fkey; m.pview = vi;
+        const ls = info(vi), iy = py + mp + LH * 2 + 4 * s;
+        text(ls[0], px + mp, iy, vi === null ? COLR.amber : COLR.tx); text(ls[1], px + mp, iy + LH, COLR.dim); text(ls[2], px + mp, iy + LH * 2, vi === null ? COLR.dim : COLR.ok);
+        const sy = by + bh + 3 * s, r = button(px + mp + bwf + 3 * s, sy, bwf, bh, 'sell', true, () => { if (!m.sellArm) { m.sellArm = true; sfx('uiHover', t.x, t.z, .8); } else { buzz(16); doSell(t); } }, null, m.sellArm);
+        PX.icon(c, 'sell', px + mp + bwf + 7 * s, sy + by0 + r.dy, s); text(sl, px + mp + bwf + 7 * s + iw9 + 3 * s, sy + by0 + r.dy, m.sellArm ? COLR.ember : COLR.tx);
+        text(t.kills + ' kills', px + mp, sy + by0, COLR.dim);
+      } else {
+        const t = m.tower, d = t.def, maxed = t.lvl >= 3, upc = maxed ? 0 : d.cost[t.lvl + 1], can = !maxed && G.gold >= upc && t.state === 'active', refund = Math.round(t.spent * .6), L1 = t.lvl + 1; m.pview = null;
+        const ul = maxed ? 'Max level' : 'Upgrade ' + upc, sl = m.sellArm ? 'Confirm +' + refund : 'Sell +' + refund, iw9 = 9 * s, bw3 = Math.max(tw(ul), tw(sl), tw('Confirm +' + refund)) + iw9 + 11 * s, bh = (tch ? 24 : 15) * s, by0 = Math.round((bh - LH) / 2);
+        const st = statLine(d, t.lvl, t.kind);
+        const nx = maxed ? t.kills + ' kills' : 'Next: ' + statLine(d, L1, t.kind).toLowerCase();
+        const wP = Math.max(bw3 * 2 + 3 * s, tw(d.name) + 32 * s, tw(st), tw(nx)) + mp * 2, hP = mp * 2 + LH * 3 + 6 * s + bh, [px, py] = place(wP, hP);
+        U.menuRect = { x: px, y: py, w: wP, h: hP };
+        plate(px, py, wP, hP); text(d.name, px + mp, py + mp - s, COLR.amber);
+        for (let i = 0; i < 4; i++) PX.icon(c, i <= t.lvl ? 'star' : 'starEmpty', px + wP - mp - (4 - i) * 6 * s, py + mp, s);
         text(st, px + mp, py + mp + LH + s, COLR.tx); text(nx, px + mp, py + mp + LH * 2 + 2 * s, maxed ? COLR.dim : COLR.ok);
         const by = py + mp + LH * 3 + 6 * s, bwf = Math.floor((wP - mp * 2 - 3 * s) / 2);
         let r = button(px + mp, by, bwf, bh, 'up', can, () => doUpgrade(t), null, false);

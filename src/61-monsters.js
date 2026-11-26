@@ -53,10 +53,10 @@ function spawnMonster(type, o = {}) {
 function removeMonster(m) { m.dead = true; m.alive = false; if (m.flame) { removeFlame(m.flame); m.flame = null; } if (m.foe) { m.foe = null; } }
 
 function slowMonster(m, f, t) { if (m.def.boss) { f *= .4; t *= .6; } if (m.def.slowRes) f *= 1 - m.def.slowRes; m.slowF = Math.max(m.slowF, f); m.slowT = Math.max(m.slowT, t); }
-function hitMonster(m, dmg, kind, dx, dz, tower) {
+function hitMonster(m, dmg, kind, dx, dz, tower, pierce = 0) {
   if (m.dead || m.hp <= 0) return false;
   if (m.eth) { if (kind === 'arrow' || kind === 'sword') { if (rnd() < .5) fxTimed(0, m.x + rr(-.2, .2), m.y + m.hitH + rr(-.2, .3), m.z + rr(-.2, .2), .5, .5, .5, .9, 1.8, .7, .18); return false; } dmg *= .5; }
-  if (kind === 'arrow' && m.def.armor) { dmg *= m.def.armor; if (rnd() < .6) { fxSparks(m.x, m.y + m.hitH, m.z, 3, 3, 2.4, 2.2, 1.6, { size: .05 }); } }
+  if (kind === 'arrow' && m.def.armor) { dmg *= lerp(m.def.armor, 1, pierce); if (rnd() < .6 - pierce * .5) { fxSparks(m.x, m.y + m.hitH, m.z, 3, 3, 2.4, 2.2, 1.6, { size: .05 }); } }
   m.hp -= dmg; m.flash = 1; m.flinch = m.def.boss ? Math.max(m.flinch, .25) : 1; m.hitAt = G.t;
   const kb = (kind === 'blast' ? 2.6 : kind === 'sword' ? 1.3 : kind === 'arrow' ? .7 : .2) / Math.sqrt(m.mass);
   if (!m.fly && (dx || dz)) { const p = pathAt(G.B, m.s, _ap); m.ks += (dx * p.tx + dz * p.tz) * kb; m.kl += (-dx * p.tz + dz * p.tx) * kb; }
@@ -64,6 +64,12 @@ function hitMonster(m, dmg, kind, dx, dz, tower) {
   if (m.hp <= 0) { killMonster(m, kind, dx, dz, tower); return true; }
   return false;
 }
+function burnMonster(m, dmg, tower, kind) {
+  if (m.dead || m.hp <= 0 || m.dying) return;
+  m.hp -= dmg; m.hitAt = G.t; m.flash = Math.max(m.flash, .3); if (tower) { tower.dealt += dmg; tower.recent += dmg; }
+  if (m.hp <= 0) killMonster(m, kind, 0, 0, tower);
+}
+function poisonMonster(m, dps, t, tower) { if (dps >= (m.poisonD || 0) || m.poisonT < .5) { m.poisonD = dps; m.poisonBy = tower; } m.poisonT = Math.max(m.poisonT || 0, t); }
 function dropCoins(x, y, z, bounty, n) {
   G.gold += bounty; const each = bounty / n;
   for (let i = 0; i < n; i++) {
@@ -166,12 +172,17 @@ function spawnFootman(tower) {
     rad: .26, mass: 7, s: tower.pad.s, lat: 0, onRoad: false, state: 'march', target: null, cd: rr(.2, .6), torch: slot === 0, gone: false, dead: false, vf: 0, scale: .9 + lvl * .05,
     struck: false, alive: true, lI: slot === 0 ? 32 : 0, lx: 0, ly: 0, lz: 0, lseed: rnd() * 9, flame: null, leave: false, lvlUp: false, weapon: null, shield: null, age: 0, foes: 0,
   };
+  footmanPath(f, tower);
   if (f.torch) f.flame = addFlame({ x: door.x, y: -50, z: door.z, size: .34, embers: .45, glow: .8 });
   tower.men.push(f); G.men.push(f); return f;
 }
+function footmanPath(f, tw) {
+  const d = tw.def; f.knight = tw.path === 'knights'; f.swift = !!d.swift; f.hold = d.hold || 2; f.dodge = d.dodge || 0;
+  f.scale = (.9 + Math.min(tw.lvl, 2) * .05) * (f.knight ? 1.08 : f.swift ? .94 : 1); f.tint = f.knight ? [.92, .95, 1.05] : f.swift ? [.5, .46, .58] : null;
+}
 function killFootman(f, dx, dz) {
   f.dead = true; f.alive = false; f.gone = true; if (f.flame) { fxEmbers(f.flame.x, f.flame.y, f.flame.z, 6, .1); removeFlame(f.flame); f.flame = null; }
-  f.weapon = KIT.item.blade; if (!f.torch) f.shield = KIT.item.shieldH;
+  dressFootman(f);
   shatter(e => rigHuman(KIT.foot, SPEC.foot, e), f, [(dx || 0) * 1.6, .8, (dz || 0) * 1.6], { spread: .9, life: .8 });
   fxDust(f.x, f.y + .1, f.z, 3, .5, { a: .35 }); sfx('footmanDie', f.x, f.z, .8);
 }
@@ -182,16 +193,16 @@ function slotPos(f, out) {
 const _fp = { x: 0, y: 0, z: 0, tx: 0, tz: 0 };
 function footmanThink(f, dt) {
   const B = G.B, tw = f.tower; f.age += dt;
-  if (f.lvlUp) { f.lvlUp = false; const d = tw.def, r = f.hp / f.maxHp; f.maxHp = d.hp[tw.lvl]; f.hp = f.maxHp * Math.max(r, .6); f.dmg = d.dmg[tw.lvl]; f.scale = .9 + tw.lvl * .05; }
+  if (f.lvlUp) { f.lvlUp = false; const d = tw.def, r = f.hp / f.maxHp; f.maxHp = d.hp[tw.lvl]; f.hp = f.maxHp * Math.max(r, .6); f.dmg = d.dmg[tw.lvl]; footmanPath(f, tw); }
   if (!tw.alive) f.leave = true;
-  let gx, gz, face = null, speed = 2.1, fighting = false;
+  let gx, gz, face = null, speed = f.swift ? 3.4 : 2.1, fighting = false; const reachS = f.swift ? 3.6 : 2.5;
   const rally = slotPos(f, _fp), rs = tw.pad.s;
   if (f.leave) { f.gone = true; f.alive = false; if (f.flame) { removeFlame(f.flame); f.flame = null; } fxDust(f.x, f.y + .3, f.z, 4, .6); return; }
   let m = f.target;
-  if (m && (m.dead || m.hp <= 0 || Math.abs(m.s - rs) > 3.0 || m.dying)) { if (m.foe === f) m.foe = null; m.men = Math.max(0, m.men - 1); m = f.target = null; }
+  if (m && (m.dead || m.hp <= 0 || Math.abs(m.s - rs) > reachS + .5 || m.dying)) { if (m.foe === f) m.foe = null; m.men = Math.max(0, m.men - 1); m = f.target = null; }
   if (!m && f.state !== 'march') {
     let best = null, bd = 1e9;
-    for (const q of G.mons) { if (q.dead || q.fly || q.hp <= 0 || !q.vis || q.dying || q.def.ghost) continue; if (Math.abs(q.s - rs) > 2.5) continue; const d = dist2(f.x, f.z, q.x, q.z) + q.men * 6; if (d < bd) { bd = d; best = q; } }
+    for (const q of G.mons) { if (q.dead || q.fly || q.hp <= 0 || !q.vis || q.dying || (q.def.ghost && !f.swift)) continue; if (Math.abs(q.s - rs) > reachS) continue; const d = dist2(f.x, f.z, q.x, q.z) + q.men * 6 - (f.swift && q.def.slip ? 2 : 0); if (d < bd) { bd = d; best = q; } }
     if (best) { m = f.target = best; best.men++; }
   }
   if (m) {
@@ -207,9 +218,9 @@ function footmanThink(f, dt) {
   if (face !== null) f.yaw = angDamp(f.yaw, face, 12, dt);
   f.cd -= dt;
   if (f.atk >= 0) {
-    f.atk += dt / .58;
+    f.atk += dt / (f.swift ? .36 : .58);
     if (f.atk >= .5 && !f.struck) { f.struck = true; if (m && !m.dead && Math.hypot(m.x - f.x, m.z - f.z) < m.rad + f.rad + .75) strike(f, m, f.dmg, true); }
-    if (f.atk >= 1) { f.atk = -1; f.cd = rr(.3, .5); }
+    if (f.atk >= 1) { f.atk = -1; f.cd = f.swift ? rr(.1, .2) : rr(.3, .5); }
   } else if (fighting && f.cd <= 0) { f.atk = 0; f.struck = false; }
   f.flash = Math.max(0, f.flash - dt * 7); f.flinch = Math.max(0, f.flinch - dt * 4.5);
   const q = pathNear(B, f.x, f.z, f.s, 20); f.s = q.s; f.lat = q.lat; f.onRoad = Math.abs(q.lat) < ROAD_HALF + .3;
@@ -222,19 +233,26 @@ function strike(a, b, dmg, byMan) {
   const rot = Math.atan2(dx * ux + dz * uz, dx * rx + dz * rz);
   const blade = byMan || (a.def && a.def.blade) || big;
   if (blade) fxTimed(7, mx, my, mz, big ? 4.2 : 1.55, big ? 4.2 : 1.55, byMan ? 2.2 : 2.0, byMan ? 2.2 : 1.7, byMan ? 2.4 : 1.3, .9, .2, { rot });
-  if (byMan) { const metal = !!b.def.armor || (b.def.death === 'bones' && rnd() < .4); fxSparks(b.x - dx / l * b.rad, my, b.z - dz / l * b.rad, metal ? 7 : 3, 3.6, 3, 2.3, 1.2, { size: .055, grav: 7 }); sfx(metal ? 'clash' : 'slash', mx, mz, .7, rnd()); hitMonster(b, dmg, 'sword', dx / l, dz / l, a.tower); a.tower.recent += dmg * .5; }
+  if (byMan) { const metal = !!b.def.armor || (b.def.death === 'bones' && rnd() < .4); fxSparks(b.x - dx / l * b.rad, my, b.z - dz / l * b.rad, metal ? 7 : 3, 3.6, 3, 2.3, 1.2, { size: .055, grav: 7 }); sfx(metal ? 'clash' : 'slash', mx, mz, .7, rnd()); hitMonster(b, dmg, a.swift ? 'shadow' : 'sword', dx / l, dz / l, a.tower); a.tower.recent += dmg * .5; }
   else {
     if (big) { fxDust(b.x, b.y + .1, b.z, 10, 1.4, { speed: 3 }); FX.shake = Math.min(1.2, FX.shake + .5); sfx('bossStep', b.x, b.z, 1, 1); fxTimed(4, b.x, b.y + .08, b.z, 4.5, 4.5, 1.2, .9, .6, .5, .35, { ground: true }); }
     const hitList = big ? G.men.filter(f => !f.dead && Math.hypot(f.x - b.x, f.z - b.z) < 1.5) : [b];
     for (const f of hitList) {
+      if (f.dodge && rnd() < f.dodge) { fxTimed(7, f.x, f.y + .9, f.z, 1.1, 1.1, .8, .7, 1.1, .5, .14, { rot: rnd() * TAU }); continue; }
       f.hp -= dmg; f.flash = 1; f.flinch = 1;
       if (!f.torch && rnd() < .65) { fxSparks(f.x - dx / l * .2, my, f.z - dz / l * .2, 5, 3.2, 3, 2.3, 1.3, { size: .055, grav: 7 }); if (f === b) sfx('clash', mx, mz, .6, rnd()); } else if (f === b) sfx('slash', mx, mz, .55, rnd());
       if (f.hp <= 0) killFootman(f, dx / l, dz / l);
     }
   }
 }
+function dressFootman(f) {
+  const I = KIT.item; f.wScale = 1; f.helm = f.plate = f.ahood = false;
+  if (f.knight) { f.weapon = I.blade; f.wScale = 1.12; f.shield = f.torch ? null : I.shieldR; f.helm = true; f.plate = true; }
+  else if (f.swift) { f.weapon = I.dagger; f.shield = f.torch ? null : I.dagger; f.ahood = true; }
+  else { f.weapon = I.blade; f.shield = f.torch ? null : I.shieldH; }
+}
 function drawFootman(f) {
-  f.weapon = KIT.item.blade; f.shield = f.torch ? null : KIT.item.shieldH; f.wScale = 1;
+  dressFootman(f);
   rigHuman(KIT.foot, SPEC.foot, f);
   if (f.torch && f.flame) { const p = RIGOUT.torch; f.flame.x = p.x; f.flame.y = p.y; f.flame.z = p.z; f.lx = p.x; f.ly = p.y + .2; f.lz = p.z; }
   if (f.hp < f.maxHp) G.hbars.push({ x: f.x, y: f.y + 1.55 * f.scale, z: f.z, f: sat(f.hp / f.maxHp), boss: false, man: true });
@@ -253,6 +271,11 @@ function updateUnits(dt) {
     if (m.dead) continue;
     m.flash = Math.max(0, m.flash - dt * 7); m.flinch = Math.max(0, m.flinch - dt * 4.2);
     if (m.slowT > 0) { m.slowT -= dt; if (m.slowT <= 0) m.slowF = 0; }
+    if (m.poisonT > 0 && !m.dying) {
+      m.poisonT -= dt; const pb = m.poisonBy && m.poisonBy.alive ? m.poisonBy : null; m.hp -= m.poisonD * dt; m.hitAt = G.t; if (pb) { pb.dealt += m.poisonD * dt; pb.recent += m.poisonD * dt; }
+      if ((m.vis || m.fly) && rnd() < dt * 7) fxPart(m.x + rr(-.2, .2) * m.scale, m.y + (m.fly ? 0 : m.hitH) + rr(-.1, .3), m.z + rr(-.2, .2) * m.scale, rr(-.1, .1), rr(.3, .8), rr(-.1, .1), rr(.4, .8), rr(.04, .07), .5, 2.2, .35, { drag: 1, wob: 1, rise: .2 });
+      if (m.hp <= 0) { killMonster(m, 'poison', 0, 0, pb); continue; }
+    }
     if (m.fly) { updateBat(m, dt); continue; }
     const def = m.def, maxLat = Math.max(0, maxLatBase - m.rad * .7);
     if (m.dying > 0) {
@@ -296,7 +319,7 @@ function updateUnits(dt) {
       const gap = ds - (m.rad + o.rad), lim = Math.max(0, (o.vf || 0) + gap * 2.6);
       if (lim < v) { v = lim; obstacle = o; og = gap; }
     }
-    if (!m.foe && obstacle && obstacle.isMan && og < .3 && obstacle.foes < 2) m.foe = obstacle;
+    if (!m.foe && obstacle && obstacle.isMan && og < .3 && obstacle.foes < (obstacle.hold || 2)) m.foe = obstacle;
     if (obstacle && v < want * .55 && !m.foe) {
       if (m.laneT === undefined || m.laneT <= 0) {
         m.laneT = .35; const first = rnd() < .5 ? 1 : -1;

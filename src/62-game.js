@@ -23,10 +23,10 @@ function bossType() { const b = G.B.bio.boss; return b[Math.floor(G.level / BIOM
 function buildWave(k, level) {
   const q = [], boss = k === 5, lv = 1 + .25 * level;
   let budget = (34 + 25 * (k - 1)) * lv * G.press * (boss ? .7 : 1), heavy = 0, air = budget * .42;
-  const hpMul = (1 + .13 * (k - 1)) * (1 + .27 * level) * (.85 + .15 * G.press);
+  const hpMul = (1 + (.13 + .025 * clamp(level - 3, 0, 8)) * (k - 1)) * (1 + .27 * level + .03 * Math.max(0, level - 8) ** 2) * (.85 + .15 * G.press);
   const menu = waveMenu(k, level), tot = menu.reduce((a, b) => a + b[1], 0);
   let t = .6;
-  if (boss) q.push({ t: 2.2, type: bossType(), hpMul: (1 + .4 * level) * Math.pow(G.press, .4) });
+  if (boss) q.push({ t: 2.2, type: bossType(), hpMul: (1 + .4 * level + .05 * clamp(level - 4, 0, 5) ** 2) * Math.pow(G.press, .4) });
   while (budget > 0) {
     let r = rnd() * tot, type = 'skel'; for (const [ty, w] of menu) { r -= w; if (r <= 0) { type = ty; break; } }
     let R = ROSTER[type];
@@ -48,7 +48,7 @@ function endWave() {
   const l = G.waveLeaks;
   if (l === 0) G.press *= 1.17; else if (l >= 6) G.press *= .8; else if (l >= 3) G.press *= .9;
   if (G.lives <= 6) G.press *= .9;
-  G.press = clamp(G.press, .6, 2.2);
+  G.press = clamp(G.press, .6, 2.2 + .05 * clamp(G.level - 4, 0, 6));
   G.gold += 24 + 9 * G.k + 10 * G.level;
 }
 function updateWaves(dt) {
@@ -88,9 +88,20 @@ function buildTower(pad, kind, byPlayer) {
   G.gold -= def.cost[0]; UI.goldShown = Math.min(UI.goldShown, G.gold);
   const t = new Tower(pad, kind, G.B.pads.indexOf(pad)); G.towers.push(t); UI.ping(pad.x, pad.y, pad.z, byPlayer); return t;
 }
-function upgradeTower(t, byPlayer) {
-  if (!t || t.lvl >= 2 || t.state !== 'active' || G.phase !== 'play') return false; const c = t.def.cost[t.lvl + 1]; if (G.gold < c) return false;
-  G.gold -= c; UI.goldShown = Math.min(UI.goldShown, G.gold); t.upgrade(); UI.ping(t.x, t.y, t.z, byPlayer); return true;
+function upgradeTower(t, byPlayer, pi) {
+  if (!t || t.lvl >= 3 || t.state !== 'active' || G.phase !== 'play') return false; if (t.lvl === 2 && pi === undefined) return false;
+  const c = upgradeCost(t, pi); if (G.gold < c) return false;
+  G.gold -= c; UI.goldShown = Math.min(UI.goldShown, G.gold); t.upgrade(pi); UI.ping(t.x, t.y, t.z, byPlayer); return true;
+}
+function aiPath(t, air, armor, swarm) {
+  const mine = G.towers.filter(o => o.alive && o.kind === t.kind && o.path), P = TOWER_PATHS[t.kind], took = k => mine.filter(o => o.path === k).length;
+  let a = 1, b = 1;
+  if (t.kind === 'archer') { a += armor * .06; b += swarm * .05 + air * .04; }
+  else if (t.kind === 'bombard') { a += t.pad.s / G.B.L < .5 ? .15 : 0; b += swarm * .05; }
+  else if (t.kind === 'spire') { a += swarm * .05; b += armor * .05 + air * .03; }
+  else { a += armor * .05 + (t.pad.s / G.B.L > .6 ? .15 : 0); b += swarm * .06; }
+  a -= took(P[0].key) * .4; b -= took(P[1].key) * .4;
+  return a + ((t.idx * 7 + G.level * 3) % 5 - 2) * .12 >= b ? 0 : 1;
 }
 function sellTower(t) {
   if (!t || !t.alive || G.phase !== 'play') return false; const refund = Math.round(t.spent * .6);
@@ -126,11 +137,12 @@ function aiThink(dt) {
     }
   }
   for (const t of towers) {
-    if (t.state !== 'active' || t.lvl >= 2) continue;
-    const c = t.def.cost[t.lvl + 1], use = sat(t.recent / 60);
+    if (t.state !== 'active' || t.lvl >= 3) continue;
+    const pi = t.lvl === 2 ? aiPath(t, air, armor, swarm) : undefined, c = upgradeCost(t, pi), use = sat(t.recent / 60);
     let sc = (.5 + use * .9 + (t.lvl === 0 ? .12 : 0)) * (N >= 4 ? 1.25 : .7) * (empty.length === 0 ? 1.6 : 1) * (110 / c);
+    if (t.lvl === 2 && towers.some(o => o.lvl < 2 && o.state === 'active')) sc *= .75;
     if (t.kind === 'archer') sc *= 1 + air * .06; if (t.kind === 'spire') sc *= 1 + armor * .05;
-    opts.push({ sc, cost: c, act: 'up', t });
+    opts.push({ sc, cost: c, act: 'up', t, pi });
   }
   if (!opts.length) return;
   opts.sort((a, b) => b.sc - a.sc);
@@ -141,7 +153,7 @@ function aiThink(dt) {
     if (!aff) return; pick = aff;
   }
   AI.wait = 0;
-  if (pick.act === 'build') buildTower(pick.pad, pick.kind, false); else upgradeTower(pick.t, false);
+  if (pick.act === 'build') buildTower(pick.pad, pick.kind, false); else upgradeTower(pick.t, false, pick.pi);
   AI.think = N < 3 ? .12 : .8;
 }
 
@@ -156,7 +168,7 @@ function startCrumble() {
   const B = G.B;
   for (const m of G.mons) if (!m.dead) { shatter(e => rigMonster(e), m, [0, 1, 0], { spread: 1.2, life: 1 }); removeMonster(m); }
   for (const f of G.men) if (!f.dead) { f.weapon = KIT.item.blade; shatter(e => rigHuman(KIT.foot, SPEC.foot, e), f, [0, 1, 0], { spread: 1, life: 1 }); f.dead = f.gone = true; f.alive = false; if (f.flame) removeFlame(f.flame); }
-  G.mons.length = 0; G.men.length = 0; G.arrows.length = 0; G.shells.length = 0; G.stuck.length = 0;
+  G.mons.length = 0; G.men.length = 0; G.arrows.length = 0; G.shells.length = 0; G.stuck.length = 0; G.fields.length = 0;
   for (const t of G.towers) {
     t.em.alive = false; LT.emitters[t.idx] = null; removeFlame(t.flame); removeFlame(t.flame2); t.flame = t.flame2 = null; t.archers.length = 0; t.alive = false; t.state = 'gone';
     let best = null, bd = 1e9; for (const p of B.pieces) if (p.kind === 'chunk') { const d = dist2(p.cx, p.cz, t.x, t.z); if (d < bd) { bd = d; best = p; } }
@@ -187,7 +199,7 @@ function activateBoard(B, lit) {
 }
 function beginBattle(first) {
   const B = G.B;
-  G.lives = G.maxLives; G.gold = 300 + 80 * G.level; G.bountyMul = 1 + .18 * G.level; G.dmgMul = 1.55 + .2 * G.level; G.press = lerp(G.press, 1, .5); UI.goldShown = G.gold; G.k = 0; G.leaks = 0; G.leakTypes = {}; G.spawning = false; G.bossWave = false; G.nextIn = first ? .9 : 1.6; G.queue = []; AI.think = .15; AI.wait = 0;
+  G.lives = G.maxLives; G.gold = 300 + 80 * Math.min(G.level, 10) + 30 * Math.max(0, G.level - 10); G.bountyMul = 1 + .15 * Math.min(G.level, 9) + .06 * Math.max(0, G.level - 9); G.dmgMul = 1.55 + .2 * G.level; G.press = lerp(G.press, 1, .5); UI.goldShown = G.gold; G.k = 0; G.leaks = 0; G.leakTypes = {}; G.spawning = false; G.bossWave = false; G.nextIn = first ? .9 : 1.6; G.queue = []; AI.think = .15; AI.wait = 0;
   const n = 4 + Math.min(3, G.level);
   for (let i = 0; i < n; i++) spawnMonster(i === n - 1 && G.level > 0 ? 'knight' : 'skel', { s: B.cave.s + 2.2 + i * 1.15, lat: rr(-.7, .7), hpMul: 1 + .22 * G.level });
   G.phase = 'play'; G.phaseT = 0;
